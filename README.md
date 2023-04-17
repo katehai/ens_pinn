@@ -1,6 +1,6 @@
 ## Improved Training of Physics-Informed Neural Networks with Model Ensembles
 
-The repository contains the implementation of the ensemble algorithm for physics-informed neural network (PINNs) training. To improve the training of PINNs we follow the idea of the gradual expansion of the solution interval 
+The repository contains the implementation of [the ensemble algorithm for physics-informed neural network (PINNs) training](https://arxiv.org/abs/2204.05108). To improve the training of PINNs we follow the idea of the gradual expansion of the solution interval 
 when training PINNs. We propose to train an ensemble of PINNs and use the ensemble agreement (confidence) as the criterion for expanding the solution interval to new areas. In the figure above top row shows the mean prediction across 
 the ensemble while the bottom row shows the corresponding variance. In the figure filled circles represent points included in the training loss and the empty circles represent candidate points that are eventually added during training.
 
@@ -49,7 +49,7 @@ python run_job.py --sys reaction --model_type pinn --const 5 --n_iter 60 --no_wa
 Tuning with LBFGS optimizer is enabled by adding '--use_two_opt' to the commands. 
 For all of the models, we train convection equation with $\beta = 30$ for `n_iter=100` and with
 $\beta = 40$ for `n_iter=150`, reaction and reaction-diffusion (rd) equations are trained for `n_iter=60`
-updates, diffusion and heat equations with d = 5 and d = 7 for `n_iter=80` updates and with d = 10 for `n_iter=100`.
+updates, diffusion and heat equations with $d = 5$ and $d = 7$ for `n_iter=80` updates and with $d = 10$ for `n_iter=100`.
 
 ### Citation
 
