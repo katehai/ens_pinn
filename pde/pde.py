@@ -92,6 +92,8 @@ class PdeBase(ABC):
     def save_solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1, path='data'):
         x, t, u = self.solution(num_x, num_t, x0, t0, xn, tn)
 
+        if not os.path.exists(path):
+            os.makedirs(path)
         filename = self.get_filename()
         data_path = os.path.join(path, filename)
         with h5py.File(data_path, 'w') as f:
