@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 import os
 import h5py
-import scipy.io
-import math
 import numpy as np
 
 try:
@@ -23,7 +21,7 @@ except ModuleNotFoundError:
     print('Tensorflow module is not found in the current environment')
     pass
 
-from utils import get_grid, reaction, diffusion
+from pde.pde_utils import get_grid, reaction, diffusion
 
 
 class PdeBase(ABC):
@@ -91,8 +89,8 @@ class PdeBase(ABC):
                 0]
         return u_tt
 
-    def save_solution(self, num_x=256, num_t=100, x0=0, t0=0, xN=2 * np.pi, tN=1, path='data'):
-        x, t, u = self.solution(num_x, num_t, x0, t0, xN, tN)
+    def save_solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1, path='data'):
+        x, t, u = self.solution(num_x, num_t, x0, t0, xn, tn)
 
         filename = self.get_filename()
         data_path = os.path.join(path, filename)
@@ -100,7 +98,7 @@ class PdeBase(ABC):
             f.create_dataset('x', data=x.reshape(-1, 1))
             f.create_dataset('t', data=t)
             f.create_dataset('u', data=u)
-            f.create_dataset('grid_bounds', data=np.array([x0, xN, t0, tN]))
+            f.create_dataset('grid_bounds', data=np.array([x0, xn, t0, tn]))
         print(f'Saved data to the file {filename}')
         return
 
@@ -148,57 +146,8 @@ class PdeBase(ABC):
         return NotImplemented
 
     @abstractmethod
-    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xN=1, tN=1):
+    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xn=1, tn=1):
         return NotImplemented
-
-
-class AllenCahn(PdeBase):
-    def __init__(self, framework='pytorch', postfix='', c1=0.0001, c2=5.):
-        super().__init__(framework, postfix)
-        c1, c2 = self.wrap_const([c1, c2])
-        self.c1 = c1
-        self.c2 = c2
-
-    def u0(self, x):
-        u0 = (x ** 2) * np.cos(np.pi * x)
-        u0 = u0.reshape(x.shape)
-        return u0
-
-    def pde(self, u, x, t, **kwargs):
-        u_t = self.get_u_t(u, x, t, **kwargs)
-        u_xx = self.get_u_xx(u, x, t, **kwargs)
-        f = u_t - self.c1 * u_xx + self.c2 * u * (u - 1) * (u + 1)  # 5*u**3 - 5*u
-        return f
-
-    def ic(self):
-        return
-
-    def bc(self):
-        return
-
-    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xN=1, tN=1):
-        # upload from the file and save in the right format afterwards
-        data = scipy.io.loadmat('data/AC.mat')
-        u = data['uu'].T.flatten()
-        x = data['xx']
-        t = data['tt']
-        return x, t, u
-
-    def get_filename(self):
-        name = f'{self.name}.hdf5'
-        return name
-
-    @property
-    def name(self):
-        return 'ac'
-
-    @property
-    def bound_der_loss(self):
-        return True
-
-    @property
-    def zero_bc(self):
-        return False
 
 
 class Convection(PdeBase):
@@ -229,24 +178,24 @@ class Convection(PdeBase):
         return
 
     # the function is adopted from https://github.com/a1k12/characterizing-pinns-failure-modes
-    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xN=1, tN=1):
-        h = xN / num_x
-        x = np.arange(x0, xN, h)  # not inclusive of the last point (why?)
-        t = np.linspace(t0, tN, num_t).reshape(-1, 1)
-        X, T = np.meshgrid(x, t)
+    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xn=1, tn=1):
+        h = xn / num_x
+        x = np.arange(x0, xn, h)  # not inclusive of the last point (why?)
+        t = np.linspace(t0, tn, num_t).reshape(-1, 1)
+        xx, tt = np.meshgrid(x, t)
 
         u0_val = self.u0(x)
-        G = np.full_like(u0_val, fill_value=self.source)
+        g = np.full_like(u0_val, fill_value=self.source)
 
-        IKX_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
-        IKX_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
-        IKX = np.concatenate((IKX_pos, IKX_neg))
+        ikx_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
+        ikx_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
+        ikx = np.concatenate((ikx_pos, ikx_neg))
 
-        uhat0 = np.fft.fft(u0_val)
-        nu_factor = np.exp(-self.beta * IKX * T)
-        A = uhat0 - np.fft.fft(G) * 0  # at t=0, second term goes away
-        uhat = A * nu_factor + np.fft.fft(G) * T  # for constant, fft(p) dt = fft(p)*t
-        u = np.real(np.fft.ifft(uhat))
+        u_hat0 = np.fft.fft(u0_val)
+        nu_factor = np.exp(-self.beta * ikx * tt)
+        a = u_hat0 - np.fft.fft(g) * 0  # at t=0, second term goes away
+        u_hat = a * nu_factor + np.fft.fft(g) * tt  # for constant, fft(p) dt = fft(p)*t
+        u = np.real(np.fft.ifft(u_hat))
 
         u = u.flatten()
         return x, t, u
@@ -295,27 +244,27 @@ class Diffusion(PdeBase):
     def bc(self):
         return
 
-    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xN=2 * np.pi, tN=1):
+    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1):
         nu = 1 / (self.d * self.scale) ** 2
 
-        h = xN / num_x
-        x = np.arange(x0, xN, h)  # not inclusive of the last point
-        t = np.linspace(t0, tN, num_t).reshape(-1, 1)
-        X, T = np.meshgrid(x, t)
+        h = xn / num_x
+        x = np.arange(x0, xn, h)  # not inclusive of the last point
+        t = np.linspace(t0, tn, num_t).reshape(-1, 1)
+        xx, tt = np.meshgrid(x, t)
 
         u0_val = self.u0(self.scale * x)
-        G = np.full_like(u0_val, fill_value=self.source)
+        g = np.full_like(u0_val, fill_value=self.source)
 
-        IKX_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
-        IKX_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
-        IKX = np.concatenate((IKX_pos, IKX_neg))
-        IKX2 = IKX * IKX
+        ikx_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
+        ikx_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
+        ikx = np.concatenate((ikx_pos, ikx_neg))
+        ikx2 = ikx * ikx
 
-        uhat0 = np.fft.fft(u0_val)
-        nu_factor = np.exp(nu * IKX2 * T)
-        A = uhat0 - np.fft.fft(G) * 0  # at t=0, second term goes away
-        uhat = A * nu_factor + np.fft.fft(G) * T  # for constant, fft(p) dt = fft(p)*t
-        u = np.real(np.fft.ifft(uhat))
+        u_hat0 = np.fft.fft(u0_val)
+        nu_factor = np.exp(nu * ikx2 * tt)
+        a = u_hat0 - np.fft.fft(g) * 0  # at t=0, second term goes away
+        u_hat = a * nu_factor + np.fft.fft(g) * tt  # for constant, fft(p) dt = fft(p)*t
+        u = np.real(np.fft.ifft(u_hat))
         u = u.flatten()
 
         return x, t, u
@@ -363,14 +312,14 @@ class Heat(PdeBase):
     def bc(self):
         return
 
-    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xN=2 * np.pi, tN=1):
-        x, t, X, T = get_grid(x0, xN, num_x, t0, tN, num_t)
+    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1):
+        x, t, xx, tt = get_grid(x0, xn, num_x, t0, tn, num_t)
 
         # solution from page 20 of this lecture notes
         # https://sites.ualberta.ca/~niksirat/ODE/chapter-7ode.pdf
         # and https://tutorial.math.lamar.edu/classes/de/solvingheatequation.aspx
 
-        u = np.exp(-T) * self.u0(X)
+        u = np.exp(-tt) * self.u0(xx)
         return x, t, u
 
     def get_filename(self):
@@ -404,7 +353,6 @@ class Reaction(PdeBase):
 
     def pde(self, u, x, t, **kwargs):
         u_t = self.get_u_t(u, x, t, **kwargs)
-        # f = u_t + self.rho * u * (u - 1)  # - self.rho * u + self.rho * u ** 2
         f = u_t - self.rho * u + self.rho * u ** 2
         return f
 
@@ -415,17 +363,17 @@ class Reaction(PdeBase):
         return
 
     # the function is adopted from https://github.com/a1k12/characterizing-pinns-failure-modes
-    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xN=2 * np.pi, tN=1):
+    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1):
         """ Computes the discrete solution of the reaction-diffusion PDE using
             pseudo-spectral operator splitting.
         """
-        dx = xN / num_x
-        x = np.arange(x0, xN, dx)
-        t = np.linspace(t0, tN, num_t).reshape(-1, 1)
-        X, T = np.meshgrid(x, t)
+        dx = xn / num_x
+        x = np.arange(x0, xn, dx)
+        t = np.linspace(t0, tn, num_t).reshape(-1, 1)
+        xx, tt = np.meshgrid(x, t)
 
         u0_val = self.u0(x)
-        u = reaction(u0_val, self.rho, T)
+        u = reaction(u0_val, self.rho, tt)
         u = u.flatten()
         return x, t, u
 
@@ -472,27 +420,27 @@ class Rd(PdeBase):
         return
 
     # the function is adopted from https://github.com/a1k12/characterizing-pinns-failure-modes
-    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xN=2 * np.pi, tN=1):
+    def solution(self, num_x=256, num_t=100, x0=0, t0=0, xn=2 * np.pi, tn=1):
         """ Computes the discrete solution of the reaction-diffusion PDE using
             pseudo-spectral operator splitting.
         """
-        dx = xN / num_x
-        dt = tN / num_t
-        x = np.arange(x0, xN, dx)  # not inclusive of the last point
-        t = np.linspace(t0, tN, num_t).reshape(-1, 1)
+        dx = xn / num_x
+        dt = tn / num_t
+        x = np.arange(x0, xn, dx)  # not inclusive of the last point
+        t = np.linspace(t0, tn, num_t).reshape(-1, 1)
         u = np.zeros((num_x, num_t))
 
-        IKX_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
-        IKX_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
-        IKX = np.concatenate((IKX_pos, IKX_neg))
-        IKX2 = IKX * IKX
+        ikx_pos = 1j * np.arange(0, num_x / 2 + 1, 1)
+        ikx_neg = 1j * np.arange(-num_x / 2 + 1, 0, 1)
+        ikx = np.concatenate((ikx_pos, ikx_neg))
+        ikx2 = ikx * ikx
 
         u0_val = self.u0(x)
         u[:, 0] = u0_val
         u_ = u0_val
         for i in range(num_t - 1):
             u_ = reaction(u_, self.rho, dt)
-            u_ = diffusion(u_, self.nu, dt, IKX2)
+            u_ = diffusion(u_, self.nu, dt, ikx2)
             u[:, i + 1] = u_
 
         u = u.T
@@ -510,112 +458,6 @@ class Rd(PdeBase):
     @property
     def bound_der_loss(self):
         return True
-
-    @property
-    def zero_bc(self):
-        return False
-
-
-class Wave(PdeBase):
-    def __init__(self, c, framework='pytorch', postfix=''):
-        super().__init__(framework, postfix)
-        c = self.wrap_const([c])[0]
-        self.c = c  # the constant in the equation is c**2
-        self.u0_type = 'wave0'
-
-    def u0(self, x):
-        # function corresponding to initial conditions for displacemment
-        if self.u0_type == 'wave0':
-            u0_val = np.sin(np.pi * x) + 0.5 * np.sin(4 * np.pi * x)
-        else:
-            u0_val = np.sin(np.pi * x) + np.sin(2 * np.pi * x)
-        return u0_val
-
-    def pde(self, u, x, t, **kwargs):
-        u_tt = self.get_u_tt(u, x, t, **kwargs)
-        u_xx = self.get_u_xx(u, x, t, **kwargs)
-        f = u_tt - self.c ** 2 * u_xx
-        return f
-
-    def ic(self):
-        return
-
-    def bc(self):
-        return
-
-    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xN=1, tN=1):
-        """Calculate the u solution for 1D wave equation.
-        """
-        x, t, X, T = get_grid(x0, xN, num_x, t0, tN, num_t)
-
-        # D’Alembert’s solution to the wave equation
-        # https://personal.math.ubc.ca/~ward/teaching/m316/lecture21.pdf
-        # Initial velocity v0 is equal to zero
-        u = 0.5 * (self.u0(X - self.c * T) + self.u0(X + self.c * T))
-        return x, t, u
-
-    def get_filename(self):
-        name = f'{self.name}_c_{int(self.c)}.hdf5'
-        return name
-
-    @property
-    def name(self):
-        return 'wave'
-
-    @property
-    def bound_der_loss(self):
-        return False
-
-    @property
-    def zero_bc(self):
-        return False
-
-
-class Helmholtz(PdeBase):
-    def __init__(self, n, framework='pytorch', postfix=''):
-        super().__init__(framework, postfix)
-        n = self.wrap_const([n])[0]
-        self.n = n
-
-    def u0(self, x):
-        u_val = 0.0
-        return u_val
-
-    def pde(self, u, x, t, **kwargs):
-        k0 = 2 * math.pi * self.n
-        u_tt = self.get_u_tt(u, x, t, **kwargs)
-        u_xx = self.get_u_xx(u, x, t, **kwargs)
-        f1 = k0 ** 2 * torch.sin(k0 * x) * torch.sin(k0 * t)
-        f = u_tt + u_xx + k0 ** 2 * u + f1
-        return f
-
-    def ic(self):
-        return
-
-    def bc(self):
-        return
-
-    def solution(self, num_x=200, num_t=200, x0=0, t0=0, xN=1, tN=1):
-        # the same equation as here
-        # https://deepxde.readthedocs.io/en/latest/demos/helmholtz.2d.dirichlet.html#helmholtz-equation-over-a-2d-square-domain
-        # it has analytical real solution
-        x, t, X, T = get_grid(x0, xN, num_x, t0, tN, num_t)
-
-        k0 = 2 * np.pi * self.n
-        u = np.sin(k0 * X) * np.sin(k0 * T)
-        return x, t, u
-
-    def get_filename(self):
-        name = f'{self.name}_n_{int(self.n)}.hdf5'
-        return name
-
-    @property
-    def name(self):
-        return 'helmholtz'
-
-    @property
-    def bound_der_loss(self):
-        return False
 
     @property
     def zero_bc(self):

@@ -1,2 +1,4 @@
 .idea/
-pde_const_data
+results
+wandb
+__pycache__/
