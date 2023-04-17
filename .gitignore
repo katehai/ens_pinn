@@ -2,3 +2,5 @@
 results
 wandb
 __pycache__/
+nes_env.yml
+env.yml
